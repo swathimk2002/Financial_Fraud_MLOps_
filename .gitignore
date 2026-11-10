@@ -24,6 +24,8 @@ env/
 data/raw/*
 data/validated/*
 data/processed/*
+data/samples/*
+data/reference/*
 
 # Model artifacts
 artifacts/*
