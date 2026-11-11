@@ -38,10 +38,32 @@ Seven features:
 - Online retrieval tested successfully.
 - Retrieved values matched the source data.
 
+
 ## 6. Configuration Note
-`offline=False` was configured to avoid the offline write-back schema error. The historical retrieval capability must be reverified with this final configuration.
 
-## 7. Testing
-Existing project test suite: 29 passed.
+- FeatureView configuration: `online=True`, `offline=False`.
+- The setting was chosen to avoid the earlier Feast offline write-back schema mismatch.
+- Historical feature retrieval uses the configured Parquet file source.
+- Online features are stored in SQLite.
+- Historical retrieval was successfully verified with the final configuration.
+- No unnecessary offline write-back was enabled.
 
-**Phase 4 implementation progress:** Online feature storage and retrieval verified. Final historical retrieval verification remains pending.
+## 7. Testing and Verification
+
+**Online store:**
+- 200,000 unique transactions materialized.
+- 1,400,000 feature records stored.
+- Seven features retrieved successfully.
+- Retrieved values matched the original Parquet source.
+
+**Historical retrieval:**
+- Tested using Feast `get_historical_features()`.
+- Five transactions retrieved successfully.
+- Seven features returned per transaction.
+- Nine columns returned, including entity ID and timestamp.
+- Missing values: 0.
+
+**Existing project test suite:**
+- 29 tests passed in the previous verified execution.
+
+**Phase 4 implementation status:** Historical feature retrieval and online feature retrieval successfully verified. Core Feast implementation completed.
