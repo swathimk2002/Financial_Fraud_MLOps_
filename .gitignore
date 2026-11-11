@@ -47,3 +47,8 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Feast generated files
+feature_store/data/*.db
+feature_store/__pycache__/
+feature_store/*.bom_backup

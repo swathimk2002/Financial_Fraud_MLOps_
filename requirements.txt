@@ -1,5 +1,6 @@
-﻿# Data engineering
-numpy==1.26.4
+﻿
+# Data engineering
+numpy==2.4.6
 pandas==2.2.3
 pyarrow==18.1.0
 openpyxl==3.1.5
@@ -17,7 +18,10 @@ seaborn==0.13.2
 
 # Configuration
 python-dotenv==1.0.1
-pydantic==2.10.3
+pydantic==2.14.3
+
+# Feature store
+feast==0.67.0
 
 # Development
 jupyterlab==4.3.1
