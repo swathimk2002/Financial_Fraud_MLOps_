@@ -6,6 +6,7 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+from src.mlops.mlflow_manager import log_final_evaluation
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -163,6 +164,10 @@ def main():
     print(f"Updated metadata: {METADATA_PATH}")
     print(f"Evaluation report: {REPORT_PATH}")
 
-
+    log_final_evaluation(
+    REPORT_PATH,
+    METADATA_PATH,
+    Path("reports/figures"),
+    )
 if __name__ == "__main__":
     main()

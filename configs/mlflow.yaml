@@ -1,0 +1,12 @@
+# MLflow local experiment tracking configuration
+
+tracking:
+  backend_store_uri: "sqlite:///mlflow.db"
+  artifact_root: "file:///D:/Financial_Fraud_MLOps/mlartifacts"
+
+experiment:
+  name: "Financial_Fraud_Detection"
+  selection_metric: "average_precision"
+
+model_registry:
+  registered_model_name: "Financial_Fraud_Detection_Model"

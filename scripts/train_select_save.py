@@ -1,5 +1,4 @@
-
-"""Train, select and save the best fraud detection model."""
+﻿"""Train, select and save the best fraud detection model."""
 
 import json
 import os
@@ -13,12 +12,14 @@ from src.ingestion.loader import load_file
 from src.model_selection.selector import select_best_model
 from src.models.trainer import compare_models
 from src.preprocessing.splitter import split_dataset
+from src.mlops.mlflow_manager import (
+    log_candidate_runs,
+    register_selected_model,
+)
 
 
-# Load project environment variables.
 load_dotenv()
 
-# Model configuration.
 SELECTION_METRIC = os.getenv(
     "MODEL_SELECTION_METRIC",
     "average_precision",
@@ -27,7 +28,6 @@ SELECTION_METRIC = os.getenv(
 CLASSIFICATION_THRESHOLD = 0.60
 RANDOM_STATE = 42
 
-# Output locations.
 ARTIFACTS_DIR = Path("artifacts")
 MODEL_PATH = ARTIFACTS_DIR / "selected_model.joblib"
 METADATA_PATH = ARTIFACTS_DIR / "model_metadata.json"
@@ -39,7 +39,6 @@ def main():
     print("STEP 1: Loading dataset...")
 
     df = load_file("data/samples/paysim_sample_200k.csv")
-
     print(f"Dataset shape: {df.shape}")
 
     print("\nSTEP 2: Engineering pre-transaction features...")
@@ -79,14 +78,28 @@ def main():
     print(f"Selection metric: {selected.metric}")
     print(f"Validation score: {selected.score:.4f}")
 
-    print("\nSTEP 6: Saving model and metadata...")
+    print("\nSTEP 6: Logging candidate models to MLflow...")
+
+    run_details = log_candidate_runs(
+        trained_models,
+        results,
+        SELECTION_METRIC,
+    )
+
+    print("\nSTEP 7: Saving the selected model...")
 
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Save the complete fitted preprocessing and model pipeline.
     joblib.dump(selected.model, MODEL_PATH)
 
-    # Save information needed to identify and use the model.
+    print("\nSTEP 8: Registering the selected model...")
+
+    selected_run = run_details[selected.model_name]
+
+    registered_model = register_selected_model(
+        selected_run["model_uri"],
+    )
+
     metadata = {
         "model_name": selected.model_name,
         "model_version": "1.0.0",
@@ -100,12 +113,16 @@ def main():
         "feature_columns": split.X_train.columns.tolist(),
         "validation_metrics": results[selected.model_name],
         "model_file": MODEL_PATH.name,
+        "mlflow_run_id": selected_run["run_id"],
+        "mlflow_registered_model": registered_model.name,
+        "mlflow_model_version": registered_model.version,
+        "mlflow_model_alias": "champion",
     }
 
     with METADATA_PATH.open("w", encoding="utf-8") as file:
         json.dump(metadata, file, indent=4)
 
-    print("\nMODEL SAVING COMPLETED.")
+    print("\nTRAINING AND MLflow REGISTRATION COMPLETED.")
     print(f"Model saved to: {MODEL_PATH}")
     print(f"Metadata saved to: {METADATA_PATH}")
 
