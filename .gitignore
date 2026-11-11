@@ -57,3 +57,9 @@ mlflow.db
 mlflow.db-*
 mlartifacts/
 mlruns/
+
+# PostgreSQL Docker data
+docker/postgres/data/
+
+# Kafka runtime data
+docker/kafka/data/
