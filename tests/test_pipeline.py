@@ -56,3 +56,18 @@ def test_pipeline_with_missing_file():
 
     with pytest.raises(FileNotFoundError):
         run_data_pipeline("data/samples/nonexistent.csv")
+
+def test_pipeline_quarantines_invalid_rows(tmp_path):
+    """Separate invalid transactions from valid transactions."""
+    dataframe = create_valid_transactions()
+    dataframe.loc[0, "amount"] = -100
+    dataframe.loc[1, "amount"] = None
+
+    file_path = tmp_path / "transactions_with_invalid_rows.csv"
+    dataframe.to_csv(file_path, index=False)
+
+    result = run_data_pipeline(file_path)
+
+    assert len(result.cleaned_dataframe) == 0
+    assert len(result.quarantined_dataframe) == 2
+    assert len(result.dataframe) == 2
