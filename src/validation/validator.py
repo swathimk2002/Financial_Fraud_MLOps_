@@ -1,11 +1,15 @@
-﻿from dataclasses import dataclass, field
+﻿
+"""Validate financial transaction datasets."""
 
+from dataclasses import dataclass, field
+
+import numpy as np
 import pandas as pd
 
 
 @dataclass
 class ValidationReport:
-    """Stores the results of dataset validation."""
+    """Store dataset validation results."""
 
     is_valid: bool
     total_rows: int
@@ -29,24 +33,28 @@ class ValidationReport:
 
 
 REQUIRED_COLUMNS = {
-    "step",
-    "type",
-    "amount",
-    "nameOrig",
-    "oldbalanceOrg",
-    "newbalanceOrig",
-    "nameDest",
-    "oldbalanceDest",
-    "newbalanceDest",
-    "isFraud",
-    "isFlaggedFraud",
+    "step", "type", "amount", "nameOrig", "oldbalanceOrg",
+    "newbalanceOrig", "nameDest", "oldbalanceDest",
+    "newbalanceDest", "isFraud", "isFlaggedFraud",
+}
+
+NUMERIC_COLUMNS = [
+    "step", "amount", "oldbalanceOrg", "newbalanceOrig",
+    "oldbalanceDest", "newbalanceDest",
+]
+
+BALANCE_COLUMNS = [
+    "oldbalanceOrg", "newbalanceOrig",
+    "oldbalanceDest", "newbalanceDest",
+]
+
+TRANSACTION_TYPES = {
+    "PAYMENT", "TRANSFER", "CASH_OUT", "CASH_IN", "DEBIT",
 }
 
 
 def validate_transactions(df: pd.DataFrame) -> ValidationReport:
-    """
-    Validate a transaction dataset without modifying the input DataFrame.
-    """
+    """Check transaction data without modifying the input."""
 
     errors = []
     warnings = []
@@ -57,9 +65,7 @@ def validate_transactions(df: pd.DataFrame) -> ValidationReport:
     missing_columns = REQUIRED_COLUMNS - set(df.columns)
 
     if missing_columns:
-        errors.append(
-            f"Missing required columns: {sorted(missing_columns)}"
-        )
+        errors.append(f"Missing required columns: {sorted(missing_columns)}")
 
     missing_values = {
         column: int(count)
@@ -72,26 +78,44 @@ def validate_transactions(df: pd.DataFrame) -> ValidationReport:
 
     duplicate_rows = int(df.duplicated().sum())
 
-    if duplicate_rows > 0:
-        warnings.append(
-            f"Dataset contains {duplicate_rows} duplicate rows."
-        )
+    if duplicate_rows:
+        warnings.append(f"Dataset contains {duplicate_rows} duplicate rows.")
 
-    if "amount" in df.columns:
-        if not pd.api.types.is_numeric_dtype(df["amount"]):
-            errors.append("Column 'amount' must be numeric.")
-        elif (df["amount"] < 0).any():
+    # Check numerical columns and infinite values.
+    for column in NUMERIC_COLUMNS:
+        if column not in df.columns:
+            continue
+
+        if not pd.api.types.is_numeric_dtype(df[column]):
+            errors.append(f"Column '{column}' must be numeric.")
+            continue
+
+        values = df[column].dropna()
+
+        if not np.isfinite(values).all():
+            errors.append(f"Column '{column}' contains infinite values.")
+
+    # Check negative amounts and balances.
+    if "amount" in df.columns and pd.api.types.is_numeric_dtype(df["amount"]):
+        if (df["amount"].dropna() < 0).any():
             errors.append("Transaction amounts cannot be negative.")
 
-    if "isFraud" in df.columns:
-        if not df["isFraud"].isin([0, 1]).all():
-            errors.append("Column 'isFraud' must contain only 0 or 1.")
+    for column in BALANCE_COLUMNS:
+        if column in df.columns and pd.api.types.is_numeric_dtype(df[column]):
+            if (df[column].dropna() < 0).any():
+                errors.append(f"Column '{column}' contains negative balances.")
 
-    if "isFlaggedFraud" in df.columns:
-        if not df["isFlaggedFraud"].isin([0, 1]).all():
-            errors.append(
-                "Column 'isFlaggedFraud' must contain only 0 or 1."
-            )
+    # Check transaction categories.
+    if "type" in df.columns:
+        unexpected = set(df["type"].dropna().unique()) - TRANSACTION_TYPES
+
+        if unexpected:
+            warnings.append(f"Unexpected transaction types: {sorted(unexpected)}")
+
+    # Check fraud labels.
+    for column in ["isFraud", "isFlaggedFraud"]:
+        if column in df.columns and not df[column].dropna().isin([0, 1]).all():
+            errors.append(f"Column '{column}' must contain only 0 or 1.")
 
     return ValidationReport(
         is_valid=len(errors) == 0,
