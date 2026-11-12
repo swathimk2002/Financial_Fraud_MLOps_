@@ -59,3 +59,8 @@ artifacts/
 
 # Local environment and credentials
 docker/postgres/.env
+
+# Allow the Feast Parquet source file inside the Docker image
+!data/processed/
+!data/processed/features/
+!data/processed/features/transaction_features.parquet

@@ -34,6 +34,11 @@ services:
         target: /app/artifacts
         read_only: true
 
+      # Feast registry and online database
+      - type: bind
+        source: ./feature_store/data
+        target: /app/feature_store/data
+
     networks:
       - financial-fraud-network
 

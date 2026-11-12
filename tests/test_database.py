@@ -44,14 +44,14 @@ def test_legitimate_prediction_does_not_create_alert(mock_get_engine):
     result = MagicMock()
     result.scalar_one_or_none.return_value = 101
 
-    connection.execute.side_effect = [MagicMock(), result]
+    connection.execute.side_effect = [MagicMock(), result, MagicMock()]
 
     event = create_prediction_event(0)
 
     prediction_id = insert_prediction_event(event)
 
     assert prediction_id == 101
-    assert connection.execute.call_count == 2
+    assert connection.execute.call_count == 3
     engine.dispose.assert_called_once()
 
 
@@ -72,6 +72,7 @@ def test_fraudulent_prediction_creates_alert(mock_get_engine):
         MagicMock(),
         result,
         MagicMock(),
+        MagicMock(),
     ]
 
     event = create_prediction_event(1)
@@ -79,9 +80,9 @@ def test_fraudulent_prediction_creates_alert(mock_get_engine):
     prediction_id = insert_prediction_event(event)
 
     assert prediction_id == 102
-    assert connection.execute.call_count == 3
+    assert connection.execute.call_count == 4
 
-    alert_parameters = connection.execute.call_args.args[1]
+    alert_parameters = connection.execute.call_args_list[2].args[1]
 
     assert alert_parameters["transaction_id"] == "API_TEST_001"
     assert alert_parameters["prediction_id"] == 102
@@ -100,14 +101,14 @@ def test_duplicate_prediction_does_not_create_alert(mock_get_engine):
     result = MagicMock()
     result.scalar_one_or_none.return_value = None
 
-    connection.execute.side_effect = [MagicMock(), result]
+    connection.execute.side_effect = [MagicMock(), result, MagicMock()]
 
     event = create_prediction_event(1)
 
     prediction_id = insert_prediction_event(event)
 
     assert prediction_id is None
-    assert connection.execute.call_count == 2
+    assert connection.execute.call_count == 3
 
 
 @patch("src.database.operations.get_engine")

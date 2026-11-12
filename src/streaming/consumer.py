@@ -212,13 +212,30 @@ def start_prediction_consumer():
         value_deserializer=JSONDeserializer(),
     )
 
+    print("Kafka consumer started. Waiting for transactions...")
+
     try:
-        for message in consumer:
-            process_prediction_event(message.value)
-            consumer.commit()
+        while True:
+            messages = consumer.poll(timeout_ms=1000)
+
+            if not messages:
+                continue
+
+            print("Assigned partitions:", consumer.assignment())
+
+            for partition_messages in messages.values():
+                for message in partition_messages:
+                    print("Message received:", message.value)
+
+                    process_prediction_event(message.value)
+
+                    consumer.commit()
+
+                    print("Kafka offset committed.")
+
     finally:
         consumer.close()
 
 
 if __name__ == "__main__":
-    start_consumer()
+    start_prediction_consumer()

@@ -10,12 +10,21 @@ from pathlib import Path
 import mlflow.sklearn
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from feast import FeatureStore
 from pydantic import BaseModel, Field
 
 from src.features.engineer import engineer_features
 from src.mlops.mlflow_manager import initialize_mlflow
 from src.streaming.producer import TransactionProducer
+import time
 
+from fastapi.responses import Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Histogram,
+    generate_latest,
+)
 
 # --------------------------------------------------
 # 1. PROJECT CONFIGURATION
@@ -28,6 +37,18 @@ METADATA_PATH = PROJECT_ROOT / "artifacts" / "model_metadata.json"
 MODEL_NAME = "Financial_Fraud_Detection_Model"
 MODEL_ALIAS = "champion"
 
+FEAST_REPO_PATH = PROJECT_ROOT / "feature_store"
+
+FEAST_FEATURES = [
+    "transaction_features:step",
+    "transaction_features:type",
+    "transaction_features:amount",
+    "transaction_features:oldbalanceOrg",
+    "transaction_features:oldbalanceDest",
+    "transaction_features:amount_to_orig_balance_ratio",
+    "transaction_features:amount_to_dest_balance_ratio",
+]
+
 
 # --------------------------------------------------
 # 2. LOGGING CONFIGURATION
@@ -37,6 +58,30 @@ logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
+# --------------------------------------------------
+# PROMETHEUS METRICS
+# --------------------------------------------------
+
+PREDICTION_REQUESTS = Counter(
+    "fraud_prediction_requests_total",
+    "Total number of prediction requests.",
+)
+
+PREDICTIONS_TOTAL = Counter(
+    "fraud_predictions_total",
+    "Total number of successful fraud predictions.",
+    ["prediction"],
+)
+
+PREDICTION_ERRORS = Counter(
+    "fraud_prediction_errors_total",
+    "Total number of prediction processing errors.",
+)
+
+PREDICTION_DURATION = Histogram(
+    "fraud_prediction_duration_seconds",
+    "Time taken to process prediction requests.",
+)
 
 # --------------------------------------------------
 # 3. LOAD MODEL METADATA
@@ -52,22 +97,23 @@ MODEL_URI = f"models:/{MODEL_NAME}@{MODEL_ALIAS}"
 
 
 # --------------------------------------------------
-# 4. MODEL AND KAFKA PRODUCER
+# 4. MODEL, KAFKA AND FEAST OBJECTS
 # --------------------------------------------------
 
 model = None
 producer = None
+feature_store = None
 
 
 # --------------------------------------------------
-# 5. LOAD MODEL AND CONNECT TO KAFKA AT STARTUP
+# 5. LOAD MODEL AND CONNECT SERVICES AT STARTUP
 # --------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the model and initialize Kafka at API startup."""
+    """Initialize MLflow, Kafka and Feast at API startup."""
 
-    global model, producer
+    global model, producer, feature_store
 
     try:
         initialize_mlflow()
@@ -86,6 +132,21 @@ async def lifespan(app: FastAPI):
 
         logger.info("Kafka producer initialized successfully.")
 
+        # Initialize Feast independently so that a Feast issue
+        # does not prevent the existing prediction API from starting.
+        try:
+            logger.info("Initializing Feast feature store.")
+
+            feature_store = FeatureStore(
+                repo_path=str(FEAST_REPO_PATH)
+            )
+
+            logger.info("Feast feature store initialized successfully.")
+
+        except Exception:
+            feature_store = None
+            logger.exception("Feast initialization failed.")
+
         yield
 
     except Exception:
@@ -98,6 +159,7 @@ async def lifespan(app: FastAPI):
             producer = None
 
         model = None
+        feature_store = None
 
 
 # --------------------------------------------------
@@ -106,7 +168,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Financial Fraud Detection API",
-    description="Predict fraudulent financial transactions using MLflow and Kafka.",
+    description=(
+        "Predict fraudulent financial transactions using "
+        "MLflow, Kafka and Feast."
+    ),
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -137,6 +202,18 @@ class TransactionInput(BaseModel):
         allow_inf_nan=False,
     )
 
+# --------------------------------------------------
+# PROMETHEUS METRICS ENDPOINT
+# --------------------------------------------------
+
+@app.get("/metrics")
+def prometheus_metrics():
+    """Expose application metrics for Prometheus."""
+
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 # --------------------------------------------------
 # 8. HEALTH CHECK ENDPOINT
@@ -144,7 +221,7 @@ class TransactionInput(BaseModel):
 
 @app.get("/health")
 def health_check():
-    """Check whether the API, model, and Kafka producer are available."""
+    """Check whether the API, model and Kafka are available."""
 
     if model is None:
         raise HTTPException(
@@ -163,6 +240,9 @@ def health_check():
         "model": MODEL_NAME,
         "alias": MODEL_ALIAS,
         "kafka": "connected",
+        "feast": (
+            "connected" if feature_store is not None else "unavailable"
+        ),
     }
 
 
@@ -170,46 +250,45 @@ def health_check():
 # 9. FRAUD PREDICTION ENDPOINT
 # --------------------------------------------------
 
+
 @app.post("/predict")
 def predict_fraud(transaction: TransactionInput):
-    """Predict fraud and publish the result to Kafka."""
+    """Predict fraud, publish to Kafka and record Prometheus metrics."""
 
-    if model is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Model is not available.",
-        )
+    # Count every request reaching this endpoint
+    PREDICTION_REQUESTS.inc()
 
-    if producer is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Kafka producer is not available.",
-        )
+    start_time = time.perf_counter()
 
     try:
-        # Convert input into a DataFrame.
+        if model is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Model is not available.",
+            )
+
+        if producer is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Kafka producer is not available.",
+            )
+
         transaction_df = pd.DataFrame(
             [transaction.model_dump()]
         )
 
-        # Generate pre-transaction features.
         features = engineer_features(transaction_df)
 
-        # Maintain training feature order.
         features = features[FEATURE_COLUMNS]
 
-        # Calculate fraud probability.
         probability = float(
             model.predict_proba(features)[0, 1]
         )
 
-        # Apply the existing classification threshold.
         prediction = int(probability >= THRESHOLD)
 
-        # Generate a unique transaction ID.
         transaction_id = str(uuid.uuid4())
 
-        # Prepare the transaction and prediction event.
         event = {
             "transaction": {
                 "transaction_id": transaction_id,
@@ -229,15 +308,22 @@ def predict_fraud(transaction: TransactionInput):
             },
         }
 
-        # Publish the event to Kafka.
         producer.send_transaction(event)
+
+        # Count successful predictions after Kafka publishing
+        prediction_label = (
+            "fraud" if prediction == 1 else "legitimate"
+        )
+
+        PREDICTIONS_TOTAL.labels(
+            prediction=prediction_label
+        ).inc()
 
         logger.info(
             "Prediction event published to Kafka: %s",
             transaction_id,
         )
 
-        # Return the prediction response.
         return {
             "transaction_id": transaction_id,
             "prediction": prediction,
@@ -251,10 +337,79 @@ def predict_fraud(transaction: TransactionInput):
             "kafka_status": "published",
         }
 
+    except HTTPException:
+        PREDICTION_ERRORS.inc()
+        raise
+
     except Exception as error:
-        logger.exception("Fraud prediction or Kafka publishing failed.")
+        PREDICTION_ERRORS.inc()
+
+        logger.exception(
+            "Fraud prediction or Kafka publishing failed."
+        )
 
         raise HTTPException(
             status_code=500,
             detail="Unable to process or publish the prediction.",
+        ) from error
+
+    finally:
+        PREDICTION_DURATION.observe(
+            time.perf_counter() - start_time
+        )
+
+
+# --------------------------------------------------
+# 10. FEAST HISTORICAL FEATURE RETRIEVAL ENDPOINT
+# --------------------------------------------------
+
+@app.get("/features/{transaction_id}")
+def get_transaction_features(transaction_id: str):
+    """Retrieve historical transaction features from Feast."""
+
+    if feature_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Feast feature store is not available.",
+        )
+
+    try:
+        result = feature_store.get_online_features(
+            features=FEAST_FEATURES,
+            entity_rows=[
+                {"transaction_id": transaction_id}
+            ],
+        ).to_dict()
+
+        retrieved_features = {
+            name: values[0]
+            for name, values in result.items()
+            if name != "transaction_id"
+        }
+
+        if not retrieved_features or all(
+            value is None for value in retrieved_features.values()
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="Transaction features were not found in Feast.",
+            )
+
+        return {
+            "transaction_id": transaction_id,
+            "features": retrieved_features,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        logger.exception(
+            "Feast feature retrieval failed for transaction: %s",
+            transaction_id,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve transaction features from Feast.",
         ) from error

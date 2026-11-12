@@ -167,6 +167,19 @@ def insert_prediction_event(event):
         )
     """)
 
+    update_transaction_query = text("""
+        UPDATE transactions
+        SET
+            processing_status = 'processed',
+            is_fraud = (
+                SELECT predicted_fraud
+                FROM predictions
+                WHERE transaction_id = :transaction_id
+            ),
+            processed_at = CURRENT_TIMESTAMP
+        WHERE transaction_id = :transaction_id
+    """)
+
     engine = get_engine()
 
     try:
@@ -180,17 +193,22 @@ def insert_prediction_event(event):
 
             prediction_id = result.scalar_one_or_none()
 
-            if prediction_id is None:
-                return None
+            if prediction_id is not None:
+                if event["prediction"]["predicted_fraud"] == 1:
+                    connection.execute(
+                        alert_query,
+                        {
+                            "transaction_id": event["transaction"]["transaction_id"],
+                            "prediction_id": prediction_id,
+                        },
+                    )
 
-            if event["prediction"]["predicted_fraud"] == 1:
-                connection.execute(
-                    alert_query,
-                    {
-                        "transaction_id": event["transaction"]["transaction_id"],
-                        "prediction_id": prediction_id,
-                    },
-                )
+            connection.execute(
+                update_transaction_query,
+                {
+                    "transaction_id": event["transaction"]["transaction_id"],
+                },
+            )
 
             return prediction_id
 
