@@ -21,18 +21,28 @@ env/
 .ipynb_checkpoints/
 
 # Raw and generated data
-data/raw/*
-!data/raw/*.dvc
-data/validated/*
-!data/validated/*.dvc
-data/processed/*
-!data/processed/*.dvc
-!data/processed/features/
-data/processed/features/*
-!data/processed/features/*.dvc
-data/samples/*
-!data/samples/*.dvc
-data/reference/*
+data/raw/*.csv
+data/raw/*.json
+data/raw/*.jsonl
+data/raw/*.ndjson
+data/raw/*.parquet
+data/raw/*.xlsx
+data/raw/*.xls
+
+data/validated/*.csv
+
+data/processed/*.csv
+data/processed/features/*.parquet
+
+data/samples/*.csv
+data/samples/*.json
+
+data/reference/*.csv
+data/reference/*.json
+data/reference/*.jsonl
+data/reference/*.parquet
+data/reference/*.xlsx
+data/reference/*.xls
 
 # Model artifacts
 artifacts/*
