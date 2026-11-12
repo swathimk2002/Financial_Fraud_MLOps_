@@ -22,9 +22,16 @@ env/
 
 # Raw and generated data
 data/raw/*
+!data/raw/*.dvc
 data/validated/*
+!data/validated/*.dvc
 data/processed/*
+!data/processed/*.dvc
+!data/processed/features/
+data/processed/features/*
+!data/processed/features/*.dvc
 data/samples/*
+!data/samples/*.dvc
 data/reference/*
 
 # Model artifacts

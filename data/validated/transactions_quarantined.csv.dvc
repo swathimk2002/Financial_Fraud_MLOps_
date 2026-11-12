@@ -1,0 +1,5 @@
+outs:
+- md5: cb77d3f2dbf2448efe671ce024382e1b
+  size: 24
+  hash: md5
+  path: transactions_quarantined.csv
