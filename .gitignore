@@ -64,3 +64,4 @@ docker/postgres/data/
 # Kafka runtime data
 docker/kafka/data/
 data/s3_verification/
+data/s3_downloads/

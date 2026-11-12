@@ -9,23 +9,18 @@ import numpy as np
 import pandas as pd
 
 from src.ingestion.loader import load_file
+from src.storage.s3_client import download_file
 from src.validation.validator import ValidationReport, validate_transactions
 
 
 NUMERIC_COLUMNS = [
-    "step",
-    "amount",
-    "oldbalanceOrg",
-    "newbalanceOrig",
-    "oldbalanceDest",
-    "newbalanceDest",
+    "step", "amount", "oldbalanceOrg", "newbalanceOrig",
+    "oldbalanceDest", "newbalanceDest",
 ]
 
 BALANCE_COLUMNS = [
-    "oldbalanceOrg",
-    "newbalanceOrig",
-    "oldbalanceDest",
-    "newbalanceDest",
+    "oldbalanceOrg", "newbalanceOrig",
+    "oldbalanceDest", "newbalanceDest",
 ]
 
 VALID_TRANSACTION_TYPES = {
@@ -52,16 +47,31 @@ class DataPipelineResult:
 
 
 def run_data_pipeline(
-    file_path: str | Path,
+    file_path: str | Path | None = None,
     read_options: dict[str, Any] | None = None,
+    s3_key: str | None = None,
 ) -> DataPipelineResult:
-    """Load, validate, and separate valid and invalid transactions."""
+    """Load transactions from a local file or S3, then validate and clean."""
 
-    path = Path(file_path)
+    if (file_path is None) == (s3_key is None):
+        raise ValueError(
+            "Provide exactly one source: file_path or s3_key."
+        )
+
+    if s3_key is not None:
+        if not isinstance(s3_key, str) or not s3_key.strip():
+            raise ValueError("S3 object key must be a non-empty string.")
+
+        local_path = (
+            Path("data/s3_downloads") / Path(s3_key)
+        )
+        path = download_file(s3_key, local_path)
+    else:
+        path = Path(file_path)
+
     dataframe = load_file(path, read_options=read_options)
     validation_report = validate_transactions(dataframe)
 
-    # If required columns are missing, quarantine the entire dataset.
     if any(
         "Missing required columns" in error
         for error in validation_report.errors
@@ -74,48 +84,43 @@ def run_data_pipeline(
             quarantined_dataframe=dataframe.copy(),
         )
 
-    invalid_mask = pd.Series(False, index=dataframe.index)
+    invalid_mask = dataframe.isna().any(axis=1)
 
-    # Quarantine rows containing missing values.
-    invalid_mask |= dataframe.isna().any(axis=1)
-
-    # Check numeric columns and infinite values.
     for column in NUMERIC_COLUMNS:
         numeric_values = pd.to_numeric(
             dataframe[column], errors="coerce"
         )
         invalid_mask |= (
-            numeric_values.isna()
-            | ~np.isfinite(numeric_values)
+            numeric_values.isna() | ~np.isfinite(numeric_values)
         )
 
-    # Reject negative amounts and balances.
     invalid_mask |= dataframe["amount"] < 0
 
     for column in BALANCE_COLUMNS:
         invalid_mask |= dataframe[column] < 0
 
-    # Check fraud labels.
     for column in LABEL_COLUMNS:
         invalid_mask |= ~dataframe[column].isin([0, 1])
 
-    # Check transaction types.
     invalid_mask |= ~dataframe["type"].isin(VALID_TRANSACTION_TYPES)
-
-    cleaned_dataframe = dataframe.loc[~invalid_mask].copy()
-    quarantined_dataframe = dataframe.loc[invalid_mask].copy()
 
     return DataPipelineResult(
         source_path=str(path),
         dataframe=dataframe,
         validation_report=validation_report,
-        cleaned_dataframe=cleaned_dataframe,
-        quarantined_dataframe=quarantined_dataframe,
+        cleaned_dataframe=dataframe.loc[~invalid_mask].copy(),
+        quarantined_dataframe=dataframe.loc[invalid_mask].copy(),
     )
 
 
-def save_pipeline_results(result: DataPipelineResult) -> None:
-    """Save cleaned transactions and quarantined records."""
+
+def save_pipeline_results(
+    result: DataPipelineResult,
+    upload_to_s3: bool = False,
+) -> None:
+    """Save pipeline outputs locally and optionally upload them to S3."""
+
+    from src.storage.s3_client import upload_file
 
     cleaned_path = Path("data/processed/transactions_cleaned.csv")
     quarantine_path = Path("data/validated/transactions_quarantined.csv")
@@ -129,3 +134,15 @@ def save_pipeline_results(result: DataPipelineResult) -> None:
         result.quarantined_dataframe.to_csv(
             quarantine_path, index=False
         )
+
+    if upload_to_s3:
+        upload_file(
+            cleaned_path,
+            "processed/transactions_cleaned.csv",
+        )
+
+        if not result.quarantined_dataframe.empty:
+            upload_file(
+                quarantine_path,
+                "validated/transactions_quarantined.csv",
+            )
