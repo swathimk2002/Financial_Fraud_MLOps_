@@ -4,7 +4,10 @@ import json
 from kafka import KafkaConsumer, KafkaProducer
 from kafka.serializer import Deserializer, Serializer
 
-from src.database.operations import insert_transaction
+from src.database.operations import (
+    insert_transaction,
+    insert_prediction_event,
+)
 
 
 class JSONDeserializer(Deserializer):
@@ -136,6 +139,79 @@ def start_consumer():
         consumer.close()
         dead_letter_producer.flush()
         dead_letter_producer.close()
+
+
+if __name__ == "__main__":
+    start_consumer()
+
+def process_prediction_event(event):
+    """Validate and store an API prediction event in PostgreSQL."""
+
+    if not isinstance(event, dict):
+        raise ValueError("Prediction event must be a dictionary.")
+
+    if "transaction" not in event or "prediction" not in event:
+        raise ValueError("Event must contain transaction and prediction.")
+
+    transaction = event["transaction"]
+    prediction = event["prediction"]
+
+    if not isinstance(transaction, dict) or not isinstance(prediction, dict):
+        raise ValueError("Transaction and prediction must be dictionaries.")
+
+    if transaction.get("transaction_id") != prediction.get("transaction_id"):
+        raise ValueError("Transaction IDs do not match.")
+
+    required_transaction_fields = {
+        "transaction_id",
+        "step",
+        "transaction_type",
+        "amount",
+        "old_balance_orig",
+        "old_balance_dest",
+    }
+
+    required_prediction_fields = {
+        "transaction_id",
+        "predicted_fraud",
+        "fraud_probability",
+        "model_name",
+        "model_version",
+        "threshold",
+    }
+
+    if not required_transaction_fields.issubset(transaction):
+        raise ValueError("Missing required transaction fields.")
+
+    if not required_prediction_fields.issubset(prediction):
+        raise ValueError("Missing required prediction fields.")
+
+    if prediction["predicted_fraud"] not in (0, 1):
+        raise ValueError("predicted_fraud must be 0 or 1.")
+
+    insert_prediction_event(event)
+
+    print(
+        f"Prediction stored: {transaction['transaction_id']} "
+        f"| Fraud: {prediction['predicted_fraud']}"
+    )
+
+def start_prediction_consumer():
+    consumer = KafkaConsumer(
+        "financial-predictions-test",
+        bootstrap_servers="localhost:9093",
+        auto_offset_reset="earliest",
+        enable_auto_commit=False,
+        group_id="financial-fraud-prediction-consumer",
+        value_deserializer=JSONDeserializer(),
+    )
+
+    try:
+        for message in consumer:
+            process_prediction_event(message.value)
+            consumer.commit()
+    finally:
+        consumer.close()
 
 
 if __name__ == "__main__":
