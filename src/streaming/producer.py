@@ -1,5 +1,5 @@
-
-import json
+﻿import json
+import os
 
 from kafka import KafkaProducer
 from kafka.serializer import Serializer
@@ -17,10 +17,16 @@ class TransactionProducer:
 
     def __init__(
         self,
-        bootstrap_servers="localhost:9093",
+        bootstrap_servers=None,
         topic="financial-transactions-test"
     ):
         self.topic = topic
+
+        if bootstrap_servers is None:
+            bootstrap_servers = os.getenv(
+                "KAFKA_BOOTSTRAP_SERVERS",
+                "localhost:9093",
+            )
 
         self.producer = KafkaProducer(
             bootstrap_servers=bootstrap_servers,

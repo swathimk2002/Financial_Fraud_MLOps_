@@ -1,11 +1,16 @@
-
-import os
+﻿import os
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL
 from dotenv import load_dotenv
 
-load_dotenv("docker/postgres/.env")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_PATH = PROJECT_ROOT / "docker" / "postgres" / ".env"
+
+load_dotenv(ENV_PATH)
+
 
 def get_database_url() -> URL:
     """Build the PostgreSQL connection URL from environment variables."""

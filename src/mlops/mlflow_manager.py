@@ -1,5 +1,4 @@
-﻿"""Set up MLflow tracking and model registration."""
-
+﻿import os
 from pathlib import Path
 from numbers import Real
 
@@ -14,10 +13,24 @@ CONFIG_PATH = PROJECT_ROOT / "configs" / "mlflow.yaml"
 
 
 def load_config():
-    """Load MLflow settings."""
+    """Load MLflow settings and resolve environment variables."""
 
     with open(CONFIG_PATH, "r", encoding="utf-8") as file:
-        return yaml.safe_load(file)
+        config = yaml.safe_load(file)
+
+    tracking = config["tracking"]
+
+    tracking["backend_store_uri"] = os.getenv(
+        "MLFLOW_TRACKING_URI",
+        "sqlite:///mlflow.db",
+    )
+
+    tracking["artifact_root"] = os.getenv(
+        "MLFLOW_ARTIFACT_ROOT",
+        "file:///D:/Financial_Fraud_MLOps/mlartifacts",
+    )
+
+    return config
 
 
 def initialize_mlflow():
@@ -60,7 +73,6 @@ def log_candidate_runs(trained_models, results, selection_metric):
                 "selection_metric": selection_metric,
             })
 
-            # Log the classifier parameters.
             model_parameters = pipeline.named_steps["model"].get_params(
                 deep=False
             )
@@ -74,7 +86,6 @@ def log_candidate_runs(trained_models, results, selection_metric):
 
             mlflow.log_params(parameters)
 
-            # Log validation metrics and confusion matrix.
             metrics = results[model_name]
 
             scalar_metrics = {
@@ -90,7 +101,6 @@ def log_candidate_runs(trained_models, results, selection_metric):
                 "confusion_matrix.json",
             )
 
-            # Log the complete fitted preprocessing and model pipeline.
             model_info = mlflow.sklearn.log_model(
                 sk_model=pipeline,
                 name="model",
@@ -132,6 +142,7 @@ def register_selected_model(model_uri):
 
     return model_version
 
+
 def log_final_evaluation(report_path, metadata_path, figures_dir):
     """Log final evaluation results and graphs to MLflow."""
 
@@ -158,7 +169,6 @@ def log_final_evaluation(report_path, metadata_path, figures_dir):
             ),
         })
 
-        # Log validation and test metrics separately.
         for split_name in ("validation_metrics_at_threshold", "test_metrics"):
             metrics = report[split_name]
 
@@ -169,11 +179,9 @@ def log_final_evaluation(report_path, metadata_path, figures_dir):
                 and not isinstance(value, bool)
             })
 
-        # Log evaluation reports.
         mlflow.log_artifact(str(report_path))
         mlflow.log_artifact(str(metadata_path))
 
-        # Log the four existing evaluation graphs.
         graph_names = [
             "roc_curve.png",
             "precision_recall_curve.png",

@@ -65,3 +65,7 @@ docker/postgres/data/
 docker/kafka/data/
 data/s3_verification/
 data/s3_downloads/
+
+# Local backup files
+*.backup
+*.pre-docker-backup

@@ -1,8 +1,8 @@
-# MLflow local experiment tracking configuration
+﻿# MLflow local experiment tracking configuration
 
 tracking:
-  backend_store_uri: "sqlite:///mlflow.db"
-  artifact_root: "file:///D:/Financial_Fraud_MLOps/mlartifacts"
+  backend_store_uri: "${MLFLOW_TRACKING_URI:-sqlite:///mlflow.db}"
+  artifact_root: "${MLFLOW_ARTIFACT_ROOT:-file:///D:/Financial_Fraud_MLOps/mlartifacts}"
 
 experiment:
   name: "Financial_Fraud_Detection"

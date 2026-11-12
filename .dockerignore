@@ -1,0 +1,61 @@
+﻿# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Git and IDE
+.git/
+.vscode/
+.idea/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Raw and generated datasets
+data/raw/
+data/validated/
+data/processed/
+data/samples/
+data/reference/
+data/s3_verification/
+data/s3_downloads/
+
+# Local database and runtime data
+docker/kafka/data/
+docker/postgres/data/
+feature_store/data/*.db
+
+# Logs and temporary files
+logs/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Development files
+notebooks/
+tests/
+
+# MLflow database and artifacts (mounted at runtime)
+mlflow.db
+mlflow.db-*
+mlflow.db.pre-docker-backup
+mlartifacts/
+
+# Model and evaluation artifacts (mounted at runtime)
+artifacts/
+
+# Local environment and credentials
+docker/postgres/.env

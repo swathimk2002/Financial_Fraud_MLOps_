@@ -1,5 +1,5 @@
-
-import json
+﻿import json
+import os
 
 from kafka import KafkaConsumer, KafkaProducer
 from kafka.serializer import Deserializer, Serializer
@@ -22,6 +22,12 @@ class JSONSerializer(Serializer):
 
     def serialize(self, topic, headers, data):
         return json.dumps(data).encode("utf-8")
+
+
+KAFKA_BOOTSTRAP_SERVERS = os.getenv(
+    "KAFKA_BOOTSTRAP_SERVERS",
+    "localhost:9093",
+)
 
 
 REQUIRED_FIELDS = {
@@ -95,7 +101,7 @@ def send_to_dead_letter(producer, transaction, error):
 
     future.get(timeout=10)
 
-    print("Invalid transaction sent to dead-letter topic.")
+    print("Invalid transaction sent to the dead-letter topic.")
 
 
 def start_consumer():
@@ -103,7 +109,7 @@ def start_consumer():
 
     consumer = KafkaConsumer(
         "financial-transactions-test",
-        bootstrap_servers="localhost:9093",
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         auto_offset_reset="earliest",
         enable_auto_commit=False,
         group_id="financial-fraud-consumer-test",
@@ -111,7 +117,7 @@ def start_consumer():
     )
 
     dead_letter_producer = KafkaProducer(
-        bootstrap_servers="localhost:9093",
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         value_serializer=JSONSerializer(),
     )
 
@@ -140,9 +146,6 @@ def start_consumer():
         dead_letter_producer.flush()
         dead_letter_producer.close()
 
-
-if __name__ == "__main__":
-    start_consumer()
 
 def process_prediction_event(event):
     """Validate and store an API prediction event in PostgreSQL."""
@@ -196,10 +199,13 @@ def process_prediction_event(event):
         f"| Fraud: {prediction['predicted_fraud']}"
     )
 
+
 def start_prediction_consumer():
+    """Consume API prediction events and store them in PostgreSQL."""
+
     consumer = KafkaConsumer(
         "financial-predictions-test",
-        bootstrap_servers="localhost:9093",
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         auto_offset_reset="earliest",
         enable_auto_commit=False,
         group_id="financial-fraud-prediction-consumer",
