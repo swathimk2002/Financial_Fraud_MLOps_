@@ -1,4 +1,4 @@
-
+﻿
 """FastAPI application for financial fraud detection."""
 
 import json
@@ -6,6 +6,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+import os
 
 import mlflow.sklearn
 import pandas as pd
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 from src.features.engineer import engineer_features
 from src.mlops.mlflow_manager import initialize_mlflow
 from src.streaming.producer import TransactionProducer
+from src.database.live_monitoring_operations import save_feature_observations
 import time
 
 from fastapi.responses import Response
@@ -87,11 +89,31 @@ PREDICTION_DURATION = Histogram(
 # 3. LOAD MODEL METADATA
 # --------------------------------------------------
 
-with open(METADATA_PATH, "r", encoding="utf-8") as file:
-    metadata = json.load(file)
+if METADATA_PATH.exists():
+    with open(METADATA_PATH, "r", encoding="utf-8") as file:
+        metadata = json.load(file)
 
-THRESHOLD = metadata["classification_threshold"]
-FEATURE_COLUMNS = metadata["feature_columns"]
+    THRESHOLD = metadata["classification_threshold"]
+    FEATURE_COLUMNS = metadata["feature_columns"]
+
+elif __import__("os").getenv("CI") == "true":
+    logger.warning("Using test-only metadata defaults in CI.")
+
+    THRESHOLD = 0.6
+    FEATURE_COLUMNS = [
+        "step",
+        "type",
+        "amount",
+        "oldbalanceOrg",
+        "oldbalanceDest",
+        "amount_to_orig_balance_ratio",
+        "amount_to_dest_balance_ratio",
+    ]
+
+else:
+    raise FileNotFoundError(
+        f"Required model metadata not found: {METADATA_PATH}"
+    )
 
 MODEL_URI = f"models:/{MODEL_NAME}@{MODEL_ALIAS}"
 
@@ -281,6 +303,17 @@ def predict_fraud(transaction: TransactionInput):
 
         features = features[FEATURE_COLUMNS]
 
+        try:
+            saved_count = save_feature_observations(features)
+            logger.info(
+                "Saved %s live feature observations.",
+                saved_count,
+            )
+        except Exception:
+            logger.exception(
+                "Live feature monitoring storage failed."
+            )
+
         probability = float(
             model.predict_proba(features)[0, 1]
         )
@@ -413,3 +446,5 @@ def get_transaction_features(transaction_id: str):
             status_code=500,
             detail="Unable to retrieve transaction features from Feast.",
         ) from error
+
+
