@@ -8,6 +8,10 @@ on:
 
 jobs:
   test:
+    env:
+      AWS_S3_BUCKET: financial-fraud-mlops-swathi-2026
+      AWS_REGION: ap-south-1
+
     runs-on: ubuntu-latest
 
     steps:
